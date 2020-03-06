@@ -114,7 +114,6 @@ void loop(Engine *eng, vector<int> speeds, vector<int> times){
     }
 }
 
-
 void getCoordCircle(vector<double> &x,vector<double> &y){
 	double dFi = 0.01;
 	
@@ -122,34 +121,6 @@ void getCoordCircle(vector<double> &x,vector<double> &y){
 		x.push_back(cos(fi));
 		y.push_back(sin(fi));
 	}
-}
-
-void scaleSpeed(vector<double> x, vector<double> y, vector<int> &speedsX,
- vector<int> &speedsY, vector<int> &timesX, vector<int> &timesY, int scale){
-
-	double dx;
-	double dy;
-	double ratio;
-
-	for(int i = 0; i < x.size()-1; i++){
-		dx = x[i+1] - x[i];
-		dy = y[i+1] - y[i];
-
-		if(fabs(dy) > fabs(dx)){
-			speedsY.push_back(round(copysign(1.0, dy) * maxSpeed));
-			speedsX.push_back(round(copysign(1.0, dx) * maxSpeed * fabs(dx / dy)));
-		}
-		else{
-			speedsX.push_back(round(copysign(1.0, dx) * maxSpeed));
-			speedsY.push_back(round(copysign(1.0, dy) * maxSpeed * fabs(dy / dx)));
-		}
-	}
-
-	for(int i = 0; i < speedsX.size(); i++){
-		timesX.push_back(scale);
-		timesY.push_back(scale);
-	}
-
 }
 
 
