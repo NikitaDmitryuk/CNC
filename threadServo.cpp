@@ -9,6 +9,10 @@
 #include <thread>
 #include <vector>
 #include <iostream>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 #define PORT_BASE 0x378
 #define PORT_SIZE 0x10
@@ -17,21 +21,32 @@ using namespace std;
 
 char dataPort = 0x0;
 mutex mtx;
+bool cancel = false;
+int cancelCounter = 0;
+int maxSpeed = 1000;
 
 class Engine
 {
 public:
     virtual ~Engine(){}
-    virtual void outPort()= 0;
+    virtual void updateDataPort()= 0;
+
+    void moveEng(int speed, bool reverse){
+    	mtx.lock();
+        updateDataPort();
+        outb(dataPortClass, PORT_BASE);
+        dataPort = dataPortClass;
+        if(reverse){
+        	step--;
+        }else{
+        	step++;
+        }
+        mtx.unlock();
+    }
 
 protected:
     unsigned long step = 2000000000;
     char dataPortClass;
-    void setDataPort(){
-        dataPort = dataPortClass;
-        step++;
-    }
-
 };
 
 class LeftEngine : public Engine
@@ -39,12 +54,8 @@ class LeftEngine : public Engine
 public:
     LeftEngine(){}
     ~LeftEngine(){}
-    void outPort(){
-        mtx.lock();
+    void updateDataPort(){
         dataPortClass = dataPort & 0xF0 | (0x33 >> (step & 3)) & 0xF;
-        outb(dataPortClass, PORT_BASE);
-        setDataPort();
-        mtx.unlock();
     }
 
 };
@@ -54,50 +65,118 @@ class RightEngine : public Engine
 public:
     RightEngine(){}
     ~RightEngine(){}
-    void outPort(){
-        mtx.lock();
+    void updateDataPort(){
         dataPortClass = dataPort & 0x0F | ((0x33 >> (step & 3)) & 0xF) << 4;
-        outb(dataPortClass, PORT_BASE);
-        setDataPort();
-        mtx.unlock();
     }
 };
 
-void loop(Engine *eng, vector<int> speeds, vector<int> steps){
+void loop(Engine *eng, vector<int> speeds, vector<int> times){
     int delay;
+    int speed;
+    int steps;
+    bool reverse;
+
     for(int i = 0; i < speeds.size(); i++){
-        if(speeds[i] != 0){
-            for(int k = 0; k < steps[i]; k++){
-                delay = round(1000000 / speeds[i]);
-                eng->outPort();
-                this_thread::sleep_for(chrono::microseconds(delay));
-            }
+
+    	speed = speeds[i];
+
+    	if(speed < 0){
+    		reverse = true;
+    		speed = -speed;
+    	}
+    	else{
+    		reverse = false;
+    	}
+
+    	steps = round(speed * times[i] / 1000000);
+    	if(steps == 0) steps = 1;
+
+    	cout << steps << endl;
+
+    	if(speed != 0){
+
+    		delay = round(1000000 / steps);
+
+    		for(int k = 0; k < steps; k++){
+            	eng->moveEng(speed, reverse);
+            	this_thread::sleep_for(chrono::microseconds(delay));
+        	}
+
+    	}else{
+    		this_thread::sleep_for(chrono::microseconds(times[i]));
+    	}
+
+        if(cancel){
+        	// outb(0, PORT_BASE);
+        	cancelCounter++;
+        	return;
         }
     }
 }
 
 
+void getCoordCircle(vector<double> &x,vector<double> &y){
+	double dFi = 0.01;
+	
+	for(double fi = 0; fi < 2*M_PI; fi+=dFi){
+		x.push_back(cos(fi));
+		y.push_back(sin(fi));
+	}
+}
+
+void scaleSpeed(vector<double> x, vector<double> y, vector<int> &speedsX,
+ vector<int> &speedsY, vector<int> &timesX, vector<int> &timesY, int scale){
+
+	double dx;
+	double dy;
+	double ratio;
+
+	for(int i = 0; i < x.size()-1; i++){
+		dx = x[i+1] - x[i];
+		dy = y[i+1] - y[i];
+
+		if(fabs(dy) > fabs(dx)){
+			speedsY.push_back(round(copysign(1.0, dy) * maxSpeed));
+			speedsX.push_back(round(copysign(1.0, dx) * maxSpeed * fabs(dx / dy)));
+		}
+		else{
+			speedsX.push_back(round(copysign(1.0, dx) * maxSpeed));
+			speedsY.push_back(round(copysign(1.0, dy) * maxSpeed * fabs(dy / dx)));
+		}
+	}
+
+	for(int i = 0; i < speedsX.size(); i++){
+		timesX.push_back(scale);
+		timesY.push_back(scale);
+	}
+
+}
+
+
 int main(){
 
-    ioperm(PORT_BASE, PORT_SIZE, 1);
+	ioperm(PORT_BASE, PORT_SIZE, 1);
 
     Engine *leftEng = new LeftEngine();
     Engine *rightEng = new RightEngine();
 
-    vector<int> speeds;
-    vector<int> steps;
+    vector<double> x;
+	vector<double> y;
 
-    for(int i = 30; i < 1000; i++){
-        speeds.push_back(i);
+    vector<int> speedsEng1;
+    vector<int> timesEng1;
+
+    vector<int> speedsEng2;
+    vector<int> timesEng2;
+
+    getCoordCircle(x, y);
+    scaleSpeed(x, y, speedsEng1, speedsEng2, timesEng1, timesEng2, 100000);
+    for(int i = 0; i < speedsEng1.size(); i++){
+    	cout << speedsEng1[i] << "\t" << speedsEng2[i] << endl;
     }
 
-
-    for(int i = 30; i < 1000; i++){
-        steps.push_back(5);
-    }
-
-    thread th1(loop, leftEng, speeds, steps);
-    thread th2(loop, rightEng, speeds, steps);
+    thread th1(loop, leftEng, speedsEng1, timesEng1);
+    thread th2(loop, rightEng, speedsEng2, timesEng2);
 
     th1.join();
     th2.join();
@@ -106,6 +185,8 @@ int main(){
 
     delete leftEng;
     delete rightEng;
+
+    cancelCounter++;
 
     return 0;
 
