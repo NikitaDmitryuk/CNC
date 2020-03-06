@@ -23,7 +23,7 @@ char dataPort = 0x0;
 mutex mtx;
 bool cancel = false;
 int cancelCounter = 0;
-int maxSpeed = 1000;
+int minTau = 3000;
 
 class Engine
 {
@@ -31,15 +31,15 @@ public:
     virtual ~Engine(){}
     virtual void updateDataPort()= 0;
 
-    void moveEng(int speed, bool reverse){
+    void moveEng(int _step){
     	mtx.lock();
         updateDataPort();
         outb(dataPortClass, PORT_BASE);
         dataPort = dataPortClass;
-        if(reverse){
-        	step--;
-        }else{
+        if(_step == 1){
         	step++;
+        }else{
+        	step--;
         }
         mtx.unlock();
     }
@@ -70,47 +70,18 @@ public:
     }
 };
 
-void loop(Engine *eng, vector<int> speeds, vector<int> times){
-    int delay;
-    int speed;
-    int steps;
-    bool reverse;
+void loop(Engine *eng, vector<int> steps, vector<int> delays){
 
-    for(int i = 0; i < speeds.size(); i++){
+	for(int i = 0; i < steps.size(); i++){
+		if(steps[i] != 0){
+			eng->moveEng(steps[i]);
+		}
+		this_thread::sleep_for(chrono::microseconds(delays[i]));
+	}
 
-    	speed = speeds[i];
-
-    	if(speed < 0){
-    		reverse = true;
-    		speed = -speed;
-    	}
-    	else{
-    		reverse = false;
-    	}
-
-    	steps = round(speed * times[i] / 1000000);
-    	if(steps == 0) steps = 1;
-
-    	cout << steps << endl;
-
-    	if(speed != 0){
-
-    		delay = round(1000000 / steps);
-
-    		for(int k = 0; k < steps; k++){
-            	eng->moveEng(speed, reverse);
-            	this_thread::sleep_for(chrono::microseconds(delay));
-        	}
-
-    	}else{
-    		this_thread::sleep_for(chrono::microseconds(times[i]));
-    	}
-
-        if(cancel){
-        	// outb(0, PORT_BASE);
-        	cancelCounter++;
-        	return;
-        }
+    if(cancel){
+        cancelCounter++;
+        return;
     }
 }
 
@@ -121,6 +92,65 @@ void getCoordCircle(vector<double> &x,vector<double> &y){
 		x.push_back(cos(fi));
 		y.push_back(sin(fi));
 	}
+}
+
+void getCoordParabl(vector<double> &x,vector<double> &y){
+	double dx = 0.01;
+	
+	for(double xt = -5.0; xt < 5.0; xt+=dx){
+		x.push_back(xt);
+		y.push_back(xt*xt);
+	}
+}
+
+
+void calcWaitTime(vector<double> x, vector<double> y,
+ vector<int> &_stepsX, vector<int> &_delaysX,
+ vector<int> &_stepsY, vector<int> &_delaysY, int scale){
+ 	double dx;
+ 	double dy;
+ 	double ratio;
+ 	vector<int> delaysX;
+ 	vector<int> delaysY;
+ 	vector<int> stepsX;
+ 	vector<int> stepsY;
+
+ 	for (int i = 0; i < x.size()-1; i++)
+ 	{
+ 		dx = x[i+1]-x[i];
+ 		dy = y[i+1]-y[i];
+ 		if(fabs(dy) > fabs(dx)){
+ 			delaysY.push_back(minTau);
+ 			stepsY.push_back(copysign(1, dy));
+ 			if(dx != 0){
+ 				delaysX.push_back(round(fabs(dy / dx * minTau)));
+ 				stepsX.push_back(copysign(1, dx));
+ 			}else{
+ 				stepsX.push_back(0);
+ 				delaysX.push_back(minTau);
+ 			}
+
+ 		}else{
+ 			delaysX.push_back(minTau);
+ 			stepsX.push_back(copysign(1, dx));
+ 			if(dy != 0){
+ 				delaysY.push_back(round(fabs(dx / dy * minTau)));
+ 				stepsY.push_back(copysign(1, dy));
+ 			}else{
+ 				stepsY.push_back(0);
+ 				delaysY.push_back(minTau);
+ 			}
+ 		}
+ 	}
+
+ 	for(int i = 0 ; i < stepsX.size(); i++){
+ 		for(int j = 0; j < scale; j++){
+ 			_stepsX.push_back(stepsX[i]);
+ 			_stepsY.push_back(stepsY[i]);
+ 			_delaysX.push_back(delaysX[i]);
+ 			_delaysY.push_back(delaysY[i]);
+ 		}
+ 	}
 }
 
 
@@ -134,20 +164,22 @@ int main(){
     vector<double> x;
 	vector<double> y;
 
-    vector<int> speedsEng1;
-    vector<int> timesEng1;
+    vector<int> stepsX;
+    vector<int> delaysX;
 
-    vector<int> speedsEng2;
-    vector<int> timesEng2;
+    vector<int> stepsY;
+    vector<int> delaysY;
 
-    getCoordCircle(x, y);
-    scaleSpeed(x, y, speedsEng1, speedsEng2, timesEng1, timesEng2, 100000);
-    for(int i = 0; i < speedsEng1.size(); i++){
-    	cout << speedsEng1[i] << "\t" << speedsEng2[i] << endl;
+    getCoordParabl(x, y);
+    calcWaitTime(x, y, stepsX, delaysX, stepsY, delaysY, 5);
+
+    for(int i = 0; i < stepsX.size(); i++){
+    	cout << stepsX[i] << "\t" << delaysX[i] << endl;
+    	cout << stepsY[i] << "\t" << delaysY[i] << endl;
     }
 
-    thread th1(loop, leftEng, speedsEng1, timesEng1);
-    thread th2(loop, rightEng, speedsEng2, timesEng2);
+    thread th1(loop, leftEng, stepsX, delaysX);
+    thread th2(loop, rightEng, stepsY, delaysY);
 
     th1.join();
     th2.join();
