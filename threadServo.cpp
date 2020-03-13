@@ -19,11 +19,13 @@
 
 using namespace std;
 
+typedef double(*Func)(double);
+
 char dataPort = 0x0;
 mutex mtx;
 bool cancel = false;
 int cancelCounter = 0;
-int minTau = 3000;
+int minTau = 2000;
 
 class Engine
 {
@@ -33,23 +35,18 @@ public:
 
     void moveEng(int _step){
 
-    	mtx.lock();
-        updateDataPort();
-        outb(dataPortClass, PORT_BASE);
-        dataPort = dataPortClass;
-        mtx.unlock();
-
-        if(_step == 1){
-        	step++;
-        }else{
-        	step--;
-        }
-
-        // if (step < 0 || step > 10000){
-        // 	mtx.lock();
-        //     updateDataPort();
-        //     outb(0, PORT_BASE);
-        // }
+    	if (_step != 0){
+    		mtx.lock();
+        	updateDataPort();
+        	outb(dataPortClass, PORT_BASE);
+        	dataPort = dataPortClass;
+        	mtx.unlock();
+        	if(_step > 0){
+        		step++;
+        	}else{
+        		step--;
+        	}
+    	}
     }
 
 protected:
@@ -81,10 +78,13 @@ public:
 void loop(Engine *eng, vector<int> steps, vector<int> delays){
 
 	for(int i = 0; i < steps.size(); i++){
-		if(steps[i] != 0){
-			eng->moveEng(steps[i]);
+		for(int j = 0; j < fabs(steps[i]); j++){
+
+			if(steps[i] != 0){
+				eng->moveEng(steps[i]);
+			}
+			this_thread::sleep_for(chrono::microseconds(delays[i]));
 		}
-		this_thread::sleep_for(chrono::microseconds(delays[i]));
 	}
 
     if(cancel){
@@ -93,28 +93,9 @@ void loop(Engine *eng, vector<int> steps, vector<int> delays){
     }
 }
 
-void getCoordCircle(vector<double> &x,vector<double> &y){
-	double dFi = 0.01;
-	
-	for(double fi = 0; fi < 2*M_PI; fi+=dFi){
-		x.push_back(cos(fi));
-		y.push_back(sin(fi));
-	}
-}
-
-void getCoordParabl(vector<double> &x,vector<double> &y){
-	double dx = 0.01;
-	
-	for(double xt = -2.0; xt < 2.0; xt+=dx){
-		x.push_back(xt);
-		y.push_back(xt*xt);
-	}
-}
-
-
 void calcWaitTime(vector<double> x, vector<double> y,
  vector<int> &_stepsX, vector<int> &_delaysX,
- vector<int> &_stepsY, vector<int> &_delaysY){
+ vector<int> &_stepsY, vector<int> &_delaysY, int scale){
  	double dx;
  	double dy;
  	double ratio;
@@ -125,27 +106,26 @@ void calcWaitTime(vector<double> x, vector<double> y,
 
  	for (int i = 0; i < x.size()-1; i++)
  	{
- 		dx = x[i+1]-x[i];
- 		dy = y[i+1]-y[i];
+ 		dx = (x[i+1]-x[i]) * scale;
+ 		dy = (y[i+1]-y[i]) * scale;
  		if(fabs(dy) > fabs(dx)){
  			delaysY.push_back(minTau);
- 			stepsY.push_back(copysign(1, dy));
+ 			stepsY.push_back(round(dy));
+ 			stepsX.push_back(round(dx));
  			if(dx != 0){
  				delaysX.push_back(round(fabs(dy / dx * minTau)));
- 				stepsX.push_back(copysign(1, dx));
  			}else{
- 				stepsX.push_back(0);
  				delaysX.push_back(minTau);
  			}
 
  		}else{
  			delaysX.push_back(minTau);
- 			stepsX.push_back(copysign(1, dx));
+ 			stepsX.push_back(round(dx));
+ 			stepsY.push_back(round(dy));
+
  			if(dy != 0){
  				delaysY.push_back(round(fabs(dx / dy * minTau)));
- 				stepsY.push_back(copysign(1, dy));
  			}else{
- 				stepsY.push_back(0);
  				delaysY.push_back(minTau);
  			}
  		}
@@ -155,21 +135,73 @@ void calcWaitTime(vector<double> x, vector<double> y,
  	_stepsY = stepsY;
  	_delaysX = delaysX;
  	_delaysY = delaysY;
+}
 
- 	// for(int i = 0 ; i < stepsX.size(); i++){
- 	// 	for(int j = 0; j < scale; j++){
- 	// 		_stepsX.push_back(stepsX[i]);
- 	// 		_stepsY.push_back(stepsY[i]);
- 	// 		_delaysX.push_back(delaysX[i]);
- 	// 		_delaysY.push_back(delaysY[i]);
- 	// 	}
- 	// }
+void moveAxes(int _stepsX, int _stepsY){
+
+	Engine *leftEng = new LeftEngine();
+    Engine *rightEng = new RightEngine();
+
+    vector<double> x;
+	vector<double> y;
+
+    vector<int> stepsX = {_stepsX};
+    vector<int> delaysX = {minTau * 2};
+
+    vector<int> stepsY = {_stepsY};
+    vector<int> delaysY = {minTau * 2};
+
+	thread th1(loop, leftEng, stepsX, delaysX);
+    thread th2(loop, rightEng, stepsY, delaysY);
+
+    th1.join();
+    th2.join();
+
+    outb(0, PORT_BASE);
+
+    delete leftEng;
+    delete rightEng;
+}
+
+
+double parabl(double x){
+	return x * x;
+}
+
+double sin4(double x){
+	return sin(4*x);
+}
+
+double line(double x){
+	return x;
+}
+
+double zero(double x){
+	return 0.0;
+}
+
+
+void setCoord(vector<double> &x, double a, double b, int steps, Func fooX){
+
+	double dx = (b - a) / steps;
+
+	if (dx > 0){
+		for(double xt = a; xt < b; xt+=dx){
+			x.push_back(fooX(xt));
+		}
+	}else{
+		for(double xt = a; xt > b; xt+=dx){
+			x.push_back(fooX(xt));
+		}
+	}
 }
 
 
 int main(){
 
 	ioperm(PORT_BASE, PORT_SIZE, 1);
+
+	//moveAxes(1000, 0);
 
     Engine *leftEng = new LeftEngine();
     Engine *rightEng = new RightEngine();
@@ -183,14 +215,34 @@ int main(){
     vector<int> stepsY;
     vector<int> delaysY;
 
-    //getCoordParabl(x, y);
-    getCoordCircle(x, y);
-    calcWaitTime(x, y, stepsX, delaysX, stepsY, delaysY);
+    setCoord(x, 0, 1, 200, &zero);
+    setCoord(x, 0, 1, 200, &line);
+    // setCoord(x, 0, 1, 200, &zero);
+    // setCoord(x, 1, 0, 200, &line);
+
+    setCoord(y, 0, 1, 200, &line);
+    setCoord(y, 0, 1, 200, &zero);
+    // setCoord(y, 1, 0, 200, &line);
+    // setCoord(y, 0, 1, 200, &zero);
+
+    calcWaitTime(x, y, stepsX, delaysX, stepsY, delaysY, 1000);
+
+    int sumTimeX = 0;
+    int sumTimeY = 0;
+    int sumStepsX = 0;
+    int sumStepsY = 0;
 
     for(int i = 0; i < stepsX.size(); i++){
+    	sumTimeX += delaysX[i];
+    	sumTimeY += delaysY[i];
+    	sumStepsX += 1;
+    	sumStepsY += 1;
+
     	cout << stepsX[i] << "\t" << delaysX[i] << endl;
     	cout << stepsY[i] << "\t" << delaysY[i] << endl;
     }
+    // cout << sumStepsX << "\t" << sumStepsY << endl;
+    // cout << sumTimeX << "\t" << sumTimeY << endl;
 
     thread th1(loop, leftEng, stepsX, delaysX);
     thread th2(loop, rightEng, stepsY, delaysY);
