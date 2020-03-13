@@ -32,20 +32,28 @@ public:
     virtual void updateDataPort()= 0;
 
     void moveEng(int _step){
+
     	mtx.lock();
         updateDataPort();
         outb(dataPortClass, PORT_BASE);
         dataPort = dataPortClass;
+        mtx.unlock();
+
         if(_step == 1){
         	step++;
         }else{
         	step--;
         }
-        mtx.unlock();
+
+        // if (step < 0 || step > 10000){
+        // 	mtx.lock();
+        //     updateDataPort();
+        //     outb(0, PORT_BASE);
+        // }
     }
 
 protected:
-    unsigned long step = 2000000000;
+    int step = 5000;
     char dataPortClass;
 };
 
@@ -97,7 +105,7 @@ void getCoordCircle(vector<double> &x,vector<double> &y){
 void getCoordParabl(vector<double> &x,vector<double> &y){
 	double dx = 0.01;
 	
-	for(double xt = -5.0; xt < 5.0; xt+=dx){
+	for(double xt = -2.0; xt < 2.0; xt+=dx){
 		x.push_back(xt);
 		y.push_back(xt*xt);
 	}
@@ -106,7 +114,7 @@ void getCoordParabl(vector<double> &x,vector<double> &y){
 
 void calcWaitTime(vector<double> x, vector<double> y,
  vector<int> &_stepsX, vector<int> &_delaysX,
- vector<int> &_stepsY, vector<int> &_delaysY, int scale){
+ vector<int> &_stepsY, vector<int> &_delaysY){
  	double dx;
  	double dy;
  	double ratio;
@@ -143,14 +151,19 @@ void calcWaitTime(vector<double> x, vector<double> y,
  		}
  	}
 
- 	for(int i = 0 ; i < stepsX.size(); i++){
- 		for(int j = 0; j < scale; j++){
- 			_stepsX.push_back(stepsX[i]);
- 			_stepsY.push_back(stepsY[i]);
- 			_delaysX.push_back(delaysX[i]);
- 			_delaysY.push_back(delaysY[i]);
- 		}
- 	}
+ 	_stepsX = stepsX;
+ 	_stepsY = stepsY;
+ 	_delaysX = delaysX;
+ 	_delaysY = delaysY;
+
+ 	// for(int i = 0 ; i < stepsX.size(); i++){
+ 	// 	for(int j = 0; j < scale; j++){
+ 	// 		_stepsX.push_back(stepsX[i]);
+ 	// 		_stepsY.push_back(stepsY[i]);
+ 	// 		_delaysX.push_back(delaysX[i]);
+ 	// 		_delaysY.push_back(delaysY[i]);
+ 	// 	}
+ 	// }
 }
 
 
@@ -170,8 +183,9 @@ int main(){
     vector<int> stepsY;
     vector<int> delaysY;
 
-    getCoordParabl(x, y);
-    calcWaitTime(x, y, stepsX, delaysX, stepsY, delaysY, 5);
+    //getCoordParabl(x, y);
+    getCoordCircle(x, y);
+    calcWaitTime(x, y, stepsX, delaysX, stepsY, delaysY);
 
     for(int i = 0; i < stepsX.size(); i++){
     	cout << stepsX[i] << "\t" << delaysX[i] << endl;
