@@ -26,8 +26,8 @@ extern mutex mtx;
 extern bool cancel;
 extern int cancelCounter;
 extern int minTau;
-extern unsigned char PORT_BASE;
-extern unsigned char PORT_SIZE;
+extern unsigned short int PORT_BASE;
+extern unsigned long PORT_SIZE;
 
 class Engine {
 public:
@@ -36,7 +36,7 @@ public:
     void moveEng(int _step);
 protected:
     int step = 5000;
-    char dataPortClass = 0;
+    unsigned char dataPortClass = 0;
 };
 
 

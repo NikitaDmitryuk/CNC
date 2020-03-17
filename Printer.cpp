@@ -119,4 +119,3 @@ void Printer::startPrinting() {
 
     outb(0, PORT_BASE);
 }
-
