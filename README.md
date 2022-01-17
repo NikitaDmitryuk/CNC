@@ -1,2 +1,4 @@
 # CNC
- Computer numerical control
+## Computer numerical control
+
+Программа для управления двумя шаговыми двигателями для рисования различных фигур.
